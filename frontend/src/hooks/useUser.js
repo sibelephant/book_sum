@@ -3,7 +3,7 @@ import { supabase, supabaseConfigured } from '../lib/supabaseClient';
 
 export function useUser() {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(!supabaseConfigured);
+  const [loading, setLoading] = useState(Boolean(supabaseConfigured));
 
   useEffect(() => {
     if (!supabaseConfigured) {
