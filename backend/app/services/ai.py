@@ -1,48 +1,30 @@
 import base64
 import json
 import logging
+from typing import Any, Dict
 
-from openai import OpenAI
+from openai import AsyncOpenAI
+
+from app.core.config import settings
+from app.core.prompts import build_summary_prompt, QUIZ_PROMPT
 
 logger = logging.getLogger(__name__)
 
-client = None
-
-LENGTH_PROMPTS = {
-    'short': 'a concise summary in 3-5 short paragraphs.',
-    'medium': 'a balanced summary in 5-8 paragraphs.',
-    'detailed': 'a thorough, detailed summary in 10-14 paragraphs.',
-}
-
-STYLE_PROMPTS = {
-    'simple': 'Use simple, plain language that anyone can understand.',
-    'academic': 'Use a formal, scholarly tone with precise terminology.',
-    'bullets': 'Present the summary as a clear list of bullet points.',
-}
+_client: AsyncOpenAI | None = None
 
 
-def _get_client() -> OpenAI:
-    global client
-    if client is None:
-        client = OpenAI()
-    return client
+def _get_client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY or None)
+    return _client
 
 
-def build_summary_prompt(text: str, length: str, style: str) -> str:
-    length_desc = LENGTH_PROMPTS.get(length, LENGTH_PROMPTS['medium'])
-    style_desc = STYLE_PROMPTS.get(style, STYLE_PROMPTS['simple'])
-    return (
-        f'You are an expert summarizer. Summarize the following document. '
-        f'Produce {length_desc} {style_desc} '
-        f'Focus on the main ideas, key arguments, and important takeaways. '
-        f'Do not add information that is not in the document.\n\n'
-        f'--- DOCUMENT START ---\n{text}\n--- DOCUMENT END ---'
-    )
-
-
-def summarize_text(text: str, length: str = 'medium', style: str = 'simple') -> str:
-    response = _get_client().chat.completions.create(
-        model='gpt-4o-mini',
+async def summarize_text(text: str, length: str = 'medium', style: str = 'simple') -> str:
+    """Summarize extracted document or input text."""
+    client = _get_client()
+    response = await client.chat.completions.create(
+        model=settings.DEFAULT_SUMMARY_MODEL,
         messages=[
             {
                 'role': 'system',
@@ -55,12 +37,13 @@ def summarize_text(text: str, length: str = 'medium', style: str = 'simple') -> 
     return response.choices[0].message.content.strip()
 
 
-def summarize_image(data: bytes, filename: str, length: str, style: str) -> str:
+async def summarize_image(data: bytes, filename: str, length: str, style: str) -> str:
     """Summarize the visual content of an image using a vision model."""
+    client = _get_client()
     b64 = base64.b64encode(data).decode('utf-8')
     mime = 'image/png'
     lower = (filename or '').lower()
-    if lower.endswith('.jpg') or lower.endswith('.jpeg'):
+    if lower.endswith(('.jpg', '.jpeg')):
         mime = 'image/jpeg'
     elif lower.endswith('.webp'):
         mime = 'image/webp'
@@ -72,22 +55,14 @@ def summarize_image(data: bytes, filename: str, length: str, style: str) -> str:
         length,
         style,
     )
-    response = _get_client().chat.completions.create(
-        model='gpt-4o-mini',
+    response = await client.chat.completions.create(
+        model=settings.DEFAULT_VISION_MODEL,
         messages=[
             {
                 'role': 'user',
                 'content': [
-                    {
-                        'type': 'text',
-                        'text': instruction,
-                    },
-                    {
-                        'type': 'image_url',
-                        'image_url': {
-                            'url': f'data:{mime};base64,{b64}',
-                        },
-                    },
+                    {'type': 'text', 'text': instruction},
+                    {'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{b64}'}},
                 ],
             }
         ],
@@ -96,29 +71,11 @@ def summarize_image(data: bytes, filename: str, length: str, style: str) -> str:
     return response.choices[0].message.content.strip()
 
 
-QUIZ_PROMPT = """
-You are a quiz generator. Based on the provided text, create a multiple-choice quiz.
-Return ONLY valid JSON with the following shape (no markdown, no explanation):
-{
-  "quiz": [
-    {
-      "question": "The question text",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correctIndex": 0
-    }
-  ]
-}
-The "correctIndex" is the 0-based index of the correct answer in "options".
-Generate exactly {n} questions.
---- TEXT START ---
-{text}
---- TEXT END ---
-"""
-
-
-def create_quiz(text: str, num_questions: int = 5) -> dict:
-    response = _get_client().chat.completions.create(
-        model='gpt-4o-mini',
+async def create_quiz(text: str, num_questions: int = 5) -> Dict[str, Any]:
+    """Generate a multiple-choice quiz JSON based on the provided text."""
+    client = _get_client()
+    response = await client.chat.completions.create(
+        model=settings.DEFAULT_SUMMARY_MODEL,
         messages=[{'role': 'user', 'content': QUIZ_PROMPT.format(text=text, n=num_questions)}],
         temperature=0.5,
         response_format={'type': 'json_object'},
@@ -126,17 +83,20 @@ def create_quiz(text: str, num_questions: int = 5) -> dict:
     raw = response.choices[0].message.content.strip()
     data = json.loads(raw)
     quiz = data.get('quiz', [])
-    # Sanitize
     for q in quiz:
         q.setdefault('options', [])
         q.setdefault('correctIndex', 0)
     return {'quiz': quiz}
 
 
-def synthesize_speech(text: str, voice: str = 'alloy') -> bytes:
-    response = _get_client().audio.speech.create(
-        model='tts-1',
+async def synthesize_speech(text: str, voice: str = 'alloy') -> bytes:
+    """Generate spoken audio (TTS MP3) for the text, clamped to max safe characters."""
+    client = _get_client()
+    # Enforce OpenAI TTS character limit (4000 characters)
+    safe_text = text[:settings.MAX_TTS_CHARS]
+    response = await client.audio.speech.create(
+        model=settings.DEFAULT_TTS_MODEL,
         voice=voice,
-        input=text,
+        input=safe_text,
     )
     return response.content
