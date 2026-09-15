@@ -5,6 +5,7 @@ import TopBar from '../components/layout/TopBar';
 import UploadCard from '../components/ui/UploadCard';
 import Button from '../components/ui/Button';
 import { useToast } from '../context/ToastContext';
+import { useNotification } from '../context/NotificationContext';
 import { summarizeText } from '../lib/api';
 import { useUser } from '../hooks/useUser';
 
@@ -23,6 +24,7 @@ const STYLES = [
 export default function NewSummary() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { addNotification } = useNotification();
   const { user } = useUser();
   const [file, setFile] = useState(null);
   const [text, setText] = useState('');
@@ -47,6 +49,7 @@ export default function NewSummary() {
       const data = await summarizeText(text, { length, style });
       clearInterval(timer);
       setProgress(100);
+      addNotification('success', `Summary ready: ${title || 'Pasted text'}`);
       navigate('/result', {
         state: { summary: data.summary, sourceTitle: title || 'Pasted text', length, style },
       });

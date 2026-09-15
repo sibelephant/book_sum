@@ -7,6 +7,7 @@ import QuizCard from '../components/ui/QuizCard';
 import Spinner from '../components/ui/Spinner';
 import { useUser } from '../hooks/useUser';
 import { useToast } from '../context/ToastContext';
+import { useNotification } from '../context/NotificationContext';
 import { generateQuiz } from '../lib/api';
 import { supabase } from '../lib/supabaseClient';
 
@@ -14,6 +15,7 @@ export default function Quiz() {
   const { user } = useUser();
   const location = useLocation();
   const toast = useToast();
+  const { addNotification } = useNotification();
   const state = location.state || {};
 
   const [quiz, setQuiz] = useState(null);
@@ -58,6 +60,7 @@ export default function Quiz() {
     setScore(correct);
     setPercent(Math.round((correct / quiz.length) * 100));
     setResults(true);
+    addNotification('success', `Quiz completed! You scored ${correct}/${quiz.length}`);
     saveResult(correct);
   };
 
