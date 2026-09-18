@@ -6,7 +6,7 @@ import UploadCard from '../components/ui/UploadCard';
 import Button from '../components/ui/Button';
 import { useToast } from '../context/ToastContext';
 import { useNotification } from '../context/NotificationContext';
-import { summarizeText } from '../lib/api';
+import { summarizeFile, summarizeText } from '../lib/api';
 import { useUser } from '../hooks/useUser';
 
 const LENGTHS = [
@@ -46,12 +46,16 @@ export default function NewSummary() {
     }, 200);
     try {
       setProgress(50);
-      const data = await summarizeText(text, { length, style });
+      const data =
+        mode === 'file'
+          ? await summarizeFile(file, { length, style })
+          : await summarizeText(text, { length, style });
       clearInterval(timer);
       setProgress(100);
-      addNotification('success', `Summary ready: ${title || 'Pasted text'}`);
+      const sourceTitle = mode === 'file' ? (file?.name || 'Document') : (title || 'Pasted text');
+      addNotification('success', `Summary ready: ${sourceTitle}`);
       navigate('/result', {
-        state: { summary: data.summary, sourceTitle: title || 'Pasted text', length, style },
+        state: { summary: data.summary, sourceTitle, length, style },
       });
     } catch (err) {
       clearInterval(timer);
